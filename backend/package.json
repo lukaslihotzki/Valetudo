@@ -55,6 +55,7 @@
     "semaphore": "1.1.0",
     "swagger-ui-express": "4.6.2",
     "uuid": "9.0.0",
+    "valetudo-map-svg": "0.1.0",
     "zoo-ids": "2.0.7"
   },
   "devDependencies": {

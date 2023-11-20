@@ -1,5 +1,14 @@
 const express = require("express");
 
+// pkg cannot resolve named exports, so directly require the file.
+// Look forward to replace pkg with Node SEA when it is ready.
+try {
+    require("valetudo-map-svg/dist/from-json.cjs");
+} catch (e) {
+    // Catch the exception, because this fails in runtime.
+}
+
+const vmsvg = require("valetudo-map-svg/from-json");
 
 const ValetudoRobot = require("../core/ValetudoRobot");
 
@@ -68,6 +77,43 @@ class RobotRouter {
             }
         });
 
+        this.router.get("/state/map.svg", async (req, res) => {
+            try {
+                const polledState = await this.robot.pollState();
+
+                res.set('Content-Type', 'image/svg+xml');
+                res.send(vmsvg.mapToSvg(polledState.map));
+            } catch (err) {
+                res.status(500).send(err.toString());
+            }
+        });
+
+        this.router.get("/state/map.msvg", async (req, res) => {
+            const boundary = ']]>?><%';
+            function write(svg) {
+                try {
+                    res.write(`${svg}\r\n--${boundary}\r\nContent-Type: image/svg+xml\r\n\r\n`);
+                } catch (err) {
+                    this.svgConns.delete(write);
+                }
+            };
+            this.svgConns ??= new Set();
+            try {
+                res.writeHead(200, {
+                    'Transfer-Encoding': ``,
+                    'Content-Type': `multipart/x-mixed-replace; boundary="${boundary}"`,
+                });
+                const polledState = await this.robot.pollState();
+                res.write(`--${boundary}\r\nContent-Type: image/svg+xml\r\n\r\n`);
+                write(vmsvg.mapToSvg(polledState.map));
+                this.svgConns.add(write);
+                res.on("close", () => {
+                    this.svgConns.delete(write);
+                });
+            } catch (err) {
+                res.close();
+            }
+        });
 
         this.router.use("/capabilities/", new CapabilitiesRouter({
             robot: this.robot,
@@ -101,6 +147,14 @@ class RobotRouter {
                 ValetudoRobot.EVENTS.MapUpdated,
                 JSON.stringify(this.robot.state.map)
             );
+        });
+
+        this.robot.onMapUpdated(() => {
+            this.svgConns ??= new Set();
+            if (this.svgConns.size) {
+                const svg = vmsvg.mapToSvg(this.robot.state.map);
+                for (let lstnr of this.svgConns) lstnr(svg);
+            }
         });
 
         this.router.get(
